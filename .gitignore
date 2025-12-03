@@ -1,0 +1,70 @@
+# Git 제외 파일 및 폴더
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+env/
+
+# Spark
+spark-warehouse/
+derby.log
+metastore_db/
+
+# Delta Lake Data (너무 큼)
+data/raw/*.parquet
+data/bronze/
+data/silver/
+data/gold/
+
+# 데이터 폴더 구조는 유지
+!data/raw/.gitkeep
+!data/bronze/.gitkeep
+!data/silver/.gitkeep
+!data/gold/.gitkeep
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# uv
+uv.lock
+
+# Temporary files
+*.tmp
+*.bak
