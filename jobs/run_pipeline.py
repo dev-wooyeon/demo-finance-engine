@@ -8,8 +8,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.spark_session import create_spark_session, stop_spark_session
 from jobs.bronze_ingestion import ingest_to_bronze
 from jobs.silver_transformation import transform_to_silver
-from jobs.gold_dimensions import build_all_dimensions
+from jobs.gold_dimensions import (
+    build_dim_date, 
+    build_dim_category, 
+    build_dim_merchant,
+    build_all_dimensions
+)
 from jobs.gold_fact_table import build_fact_transactions
+from jobs.quantum_pipeline import run_quantum_pipeline
+from pyspark.sql import functions as F
 
 
 def run_full_pipeline():
@@ -34,15 +41,31 @@ def run_full_pipeline():
             table_name="card_transactions"
         )
         
-        # Step 2: Silver Layer Transformation
-        silver_path = transform_to_silver(
-            spark,
-            bronze_path=bronze_path,
-            silver_path="data/silver/transactions"
-        )
-        
-        # Step 3: Gold Layer - Build Dimensions
-        build_all_dimensions(spark, silver_path)
+        import concurrent.futures
+
+        # Step 2: Parallel execution (Silver and Date Dimension)
+        print(f"\n🚀 Launching Parallel Stages (Silver Transformation & Date Dimension)...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_silver = executor.submit(
+                transform_to_silver, 
+                spark, 
+                bronze_path=bronze_path, 
+                silver_path="data/silver/transactions"
+            )
+            future_dim_date = executor.submit(build_dim_date, spark)
+            
+            # Wait for both to finish
+            silver_path = future_silver.result()
+            future_dim_date.result()
+
+        # Step 3: Dependent Dimensions (Category, Merchant)
+        print(f"\n🚀 Building dependent dimensions...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            future_cat = executor.submit(build_dim_category, spark, silver_path)
+            future_merch = executor.submit(build_dim_merchant, spark, silver_path)
+            
+            future_cat.result()
+            future_merch.result()
         
         # Step 4: Gold Layer - Build Fact Table
         build_fact_transactions(spark, silver_path)
@@ -76,5 +99,71 @@ def run_full_pipeline():
             print("✅ Spark session stopped\n")
 
 
+def run_supersonic_pipeline():
+    """Execute optimized 'One-Pass' ETL: Raw → In-Memory → Gold"""
+    print("\n" + "="*60)
+    print("🚀 SUPERSONIC One-Pass Pipeline (Under 60s Challenge)")
+    print("="*60 + "\n")
+    
+    spark = create_spark_session("SupersonicFinance")
+    try:
+        # Step 1: Raw -> Bronze Logic (In-Memory)
+        df_raw = spark.read.parquet("data/raw/card_transactions.parquet")
+        df_bronze = df_raw.withColumn("ingestion_timestamp", F.current_timestamp()) \
+                          .withColumn("year", F.year(F.col("transaction_date")).cast("int")) \
+                          .withColumn("month", F.month(F.col("transaction_date")).cast("int"))
+        
+        # Step 2: Bronze -> Silver Logic (In-Memory)
+        df_silver = df_bronze.dropDuplicates(["transaction_id"]) \
+                             .filter((F.col("amount") > 0) & (F.col("transaction_date").isNotNull()))
+        
+        # Step 3: Silver -> Gold Fact Logic (In-Memory)
+        # Pre-build dimensions (fast)
+        from jobs.gold_dimensions import build_dim_date, build_dim_category, build_dim_merchant
+        build_dim_date(spark) # Still write basic dims as they are small
+        
+        # Join-based dims from silver
+        dim_category = df_silver.select("merchant_category").distinct() \
+                                .withColumn("category_key", F.monotonically_increasing_id().cast("int"))
+        dim_merchant = df_silver.select("merchant_name", "merchant_category").distinct() \
+                                .withColumn("merchant_key", F.monotonically_increasing_id().cast("int"))
+        
+        # Step 4: Final Gold Join and Write (The Core Action)
+        print("Finalizing Gold Fact table (Single DAG Trigger)...")
+        dim_date = spark.read.format("delta").load("data/gold/dim_date")
+        
+        fact_df = df_silver.join(F.broadcast(dim_date), df_silver.transaction_date == dim_date.full_date, "left") \
+                           .join(F.broadcast(dim_category), "merchant_category", "left") \
+                           .join(F.broadcast(dim_merchant), ["merchant_name", "merchant_category"], "left")
+        
+        fact_final = fact_df.select(
+            F.monotonically_increasing_id().cast("int").alias("transaction_key"),
+            "date_key",
+            dim_date.year,
+            dim_date.month,
+            "category_key",
+            "merchant_key",
+            "transaction_id",
+            "amount",
+            F.lit(1).alias("quantity"),
+            F.current_timestamp().alias("created_at")
+        )
+        
+        fact_final.write.format("delta").mode("overwrite").partitionBy("year", "month").save("data/gold/fact_transactions")
+        
+        print("\n✅ SUPERSONIC PIPELINE COMPLETED!")
+        
+    except Exception as e:
+        print(f"❌ Supersonic failed: {e}")
+        raise
+    finally:
+        stop_spark_session(spark)
+
 if __name__ == "__main__":
-    run_full_pipeline()
+    # Check for flags: --quantum, --supersonic, or default
+    if "--quantum" in sys.argv:
+        run_quantum_pipeline()
+    elif "--supersonic" in sys.argv:
+        run_supersonic_pipeline()
+    else:
+        run_full_pipeline()

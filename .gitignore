@@ -68,3 +68,8 @@ uv.lock
 # Temporary files
 *.tmp
 *.bak
+
+# data quantum
+data/quantum/
+data_quality_reports/
+.tmp/

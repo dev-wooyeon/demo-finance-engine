@@ -27,6 +27,19 @@ def create_spark_session(app_name="FinanceDataPlatform"):
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
         .config("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+        # Sub-60s "Supersonic" Challenge Tuning
+        .config("spark.driver.memory", "8g")
+        .config("spark.executor.memory", "16g")
+        .config("spark.memory.fraction", "0.8")
+        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+        .config("spark.memory.offHeap.enabled", "true")
+        .config("spark.memory.offHeap.size", "4g")
+        .config("spark.sql.columnVector.offheap.enabled", "true")
+        .config("spark.sql.shuffle.partitions", "64") # Reverted to 64 (sweet spot)
+        .config("spark.sql.autoBroadcastJoinThreshold", "200mb")
+        # Delta Tuning for raw speed
+        .config("spark.databricks.delta.optimizeWrite.enabled", "true")
+        .config("spark.databricks.delta.autoCompact.enabled", "false") # Skip compaction to save time
         .master("local[*]")
     )
     

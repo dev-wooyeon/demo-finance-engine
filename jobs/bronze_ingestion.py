@@ -1,5 +1,6 @@
 """Bronze layer ingestion job"""
-from pyspark.sql.functions import current_timestamp, input_file_name
+from pyspark.sql.functions import current_timestamp, input_file_name, col
+from pyspark.sql import functions as F
 from pathlib import Path
 
 
@@ -21,22 +22,25 @@ def ingest_to_bronze(spark, source_path, table_name, bronze_base_path="data/bron
     print(f"Reading from: {source_path}")
     df = spark.read.parquet(source_path)
     
-    print(f"Records read: {df.count():,}")
+    # df.count() removed for performance
     
-    # Add metadata columns
+    # Add metadata columns and partitioning columns
     df_with_meta = df \
         .withColumn("ingestion_timestamp", current_timestamp()) \
-        .withColumn("source_file", input_file_name())
+        .withColumn("source_file", input_file_name()) \
+        .withColumn("year", F.year(col("transaction_date"))) \
+        .withColumn("month", F.month(col("transaction_date")))
     
     # Create bronze path
     bronze_path = f"{bronze_base_path}/{table_name}"
     Path(bronze_path).parent.mkdir(parents=True, exist_ok=True)
     
-    # Write to Delta Lake (append mode)
-    print(f"Writing to: {bronze_path}")
+    # Write to Delta Lake (partitioned by year, month)
+    print(f"Writing to: {bronze_path} (partitioned by year, month)")
     df_with_meta.write \
         .format("delta") \
-        .mode("append") \
+        .mode("overwrite") \
+        .partitionBy("year", "month") \
         .option("mergeSchema", "true") \
         .save(bronze_path)
     
