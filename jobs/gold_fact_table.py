@@ -1,6 +1,7 @@
 """Gold layer fact table creation"""
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType
+from datetime import datetime
 
 
 def build_fact_transactions(spark, silver_path, output_path='data/gold/fact_transactions'):
@@ -25,6 +26,7 @@ def build_fact_transactions(spark, silver_path, output_path='data/gold/fact_tran
     dim_date = spark.read.format("delta").load("data/gold/dim_date")
     dim_category = spark.read.format("delta").load("data/gold/dim_category")
     dim_merchant = spark.read.format("delta").load("data/gold/dim_merchant")
+    dim_card = spark.read.format("delta").load("data/gold/dim_card")
     
     # Join with dimensions to get surrogate keys (using Broadcast Joins for dimensions)
     print("Joining with dimensions...")
@@ -51,6 +53,13 @@ def build_fact_transactions(spark, silver_path, output_path='data/gold/fact_tran
         "left"
     )
     
+    # Join with dim_card
+    fact_df = fact_df.join(
+        F.broadcast(dim_card),
+        df_silver.card_number == dim_card.card_number,
+        "left"
+    )
+    
     # Select fact table columns including partitioning columns from dim_date
     fact_final = fact_df.select(
         F.monotonically_increasing_id().cast(IntegerType()).alias("transaction_key"),
@@ -59,21 +68,36 @@ def build_fact_transactions(spark, silver_path, output_path='data/gold/fact_tran
         dim_date.month,
         dim_category.category_key,
         dim_merchant.merchant_key,
+        dim_card.card_key,
         df_silver.transaction_id,
         df_silver.amount,
         F.lit(1).alias("quantity"),
-        F.current_timestamp().alias("created_at")
-    )
+        F.lit(datetime.now()).alias("created_at")
+    ).localCheckpoint()
     
-    # Write to Delta Lake (partitioned by year, month)
-    print(f"Writing to: {output_path} (partitioned by year, month)")
-    fact_final.write \
-        .format("delta") \
-        .mode("overwrite") \
-        .partitionBy("year", "month") \
-        .save(output_path)
+    # Write to Delta Lake (Incremental Merge)
+    from delta.tables import DeltaTable
     
-    print(f"✅ fact_transactions trigger initiated")
+    if DeltaTable.isDeltaTable(spark, output_path):
+        print(f"Performing Incremental MERGE into: {output_path}")
+        dt_fact = DeltaTable.forPath(spark, output_path)
+        
+        dt_fact.alias("target").merge(
+            fact_final.alias("source"),
+            "target.transaction_id = source.transaction_id"
+        ).whenMatchedUpdateAll() \
+         .whenNotMatchedInsertAll() \
+         .execute()
+    else:
+        print(f"Creating new fact_transactions table at: {output_path}")
+        fact_final.write \
+            .format("delta") \
+            .mode("overwrite") \
+            .option("overwriteSchema", "true") \
+            .partitionBy("year", "month") \
+            .save(output_path)
+    
+    print(f"✅ fact_transactions update completed")
     print(f"{'='*60}\n")
     
     return output_path
