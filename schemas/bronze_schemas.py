@@ -14,6 +14,8 @@ def get_card_transaction_schema():
         StructField("merchant_category", StringType(), True),
         StructField("amount", DecimalType(15, 2), False),
         StructField("card_number", StringType(), True),
+        StructField("card_type", StringType(), True),
+        StructField("card_company", StringType(), True),
         StructField("created_at", TimestampType(), False)
     ])
 

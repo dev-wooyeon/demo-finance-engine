@@ -14,6 +14,8 @@ class TransactionGenerator:
         Faker.seed(seed)
         random.seed(seed)
         self.merchants = get_merchant_catalog()
+        self.card_companies = ['Hana Card', 'Shinhan Card', 'Hyundai Card', 'Samsung Card', 'KB Kookmin Card', 'Lotte Card', 'Woori Card']
+        self.card_types = ['Credit', 'Debit']
     
     def generate_card_transactions(
         self, 
@@ -58,6 +60,8 @@ class TransactionGenerator:
                 'merchant_category': f"{merchant['category']}-{merchant['subcategory']}",
                 'amount': amount,
                 'card_number': f"****{random.randint(1000, 9999)}",
+                'card_type': random.choice(self.card_types),
+                'card_company': random.choice(self.card_companies),
                 'created_at': datetime.now()
             })
         
@@ -106,6 +110,8 @@ class TransactionGenerator:
                     'merchant_category': f"{merchant['category']}-{merchant['subcategory']}",
                     'amount': amount,
                     'card_number': f"****{random.randint(1000, 9999)}",
+                    'card_type': random.choice(self.card_types),
+                    'card_company': random.choice(self.card_companies),
                     'created_at': datetime.now().replace(microsecond=0)
                 })
             

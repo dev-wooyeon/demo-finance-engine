@@ -74,6 +74,8 @@ def transform_to_silver(spark, bronze_path, silver_path):
         "amount",
         "transaction_type",
         "card_number",
+        "card_type",
+        "card_company",
         "processed_at"
     )
     

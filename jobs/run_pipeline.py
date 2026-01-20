@@ -12,6 +12,7 @@ from jobs.gold_dimensions import (
     build_dim_date, 
     build_dim_category, 
     build_dim_merchant,
+    build_dim_card,
     build_all_dimensions
 )
 from jobs.gold_fact_table import build_fact_transactions
@@ -60,12 +61,14 @@ def run_full_pipeline():
 
         # Step 3: Dependent Dimensions (Category, Merchant)
         print(f"\n🚀 Building dependent dimensions...")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             future_cat = executor.submit(build_dim_category, spark, silver_path)
             future_merch = executor.submit(build_dim_merchant, spark, silver_path)
+            future_card = executor.submit(build_dim_card, spark, silver_path)
             
             future_cat.result()
             future_merch.result()
+            future_card.result()
         
         # Step 4: Gold Layer - Build Fact Table
         build_fact_transactions(spark, silver_path)
@@ -81,6 +84,7 @@ def run_full_pipeline():
         print(f"     - data/gold/dim_date")
         print(f"     - data/gold/dim_category")
         print(f"     - data/gold/dim_merchant")
+        print(f"     - data/gold/dim_card")
         print(f"     - data/gold/fact_transactions")
         print("\n" + "="*60 + "\n")
         

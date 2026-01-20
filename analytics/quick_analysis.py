@@ -30,11 +30,13 @@ def main():
         dim_date = spark.read.format("delta").load("data/gold/dim_date")
         dim_category = spark.read.format("delta").load("data/gold/dim_category")
         dim_merchant = spark.read.format("delta").load("data/gold/dim_merchant")
+        dim_card = spark.read.format("delta").load("data/gold/dim_card")
         
         fact_df.createOrReplaceTempView("fact_transactions")
         dim_date.createOrReplaceTempView("dim_date")
         dim_category.createOrReplaceTempView("dim_category")
         dim_merchant.createOrReplaceTempView("dim_merchant")
+        dim_card.createOrReplaceTempView("dim_card")
         
         print(f"✅ Loaded {fact_df.count():,} transactions\n")
         
@@ -100,6 +102,22 @@ def main():
             GROUP BY d.is_weekend
         """)
         weekend.show(truncate=False)
+        
+        # 5. Card Spending Analysis
+        print_section("Spending by Card Company & Type")
+        card_analysis = spark.sql("""
+            SELECT 
+                c.card_company,
+                c.card_type,
+                COUNT(*) as txn_count,
+                ROUND(SUM(f.amount), 0) as total_amount,
+                ROUND(AVG(f.amount), 0) as avg_amount
+            FROM fact_transactions f
+            JOIN dim_card c ON f.card_key = c.card_key
+            GROUP BY c.card_company, c.card_type
+            ORDER BY total_amount DESC
+        """)
+        card_analysis.show(truncate=False)
         
         # 5. Overall Statistics
         print_section("Overall Statistics")
